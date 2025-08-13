@@ -8,7 +8,7 @@ class DolarDataModel {
   final String nombre;
   final String moneda;
   final String fechaActualizacion;
-  bool isFavorite;
+  final bool isFavorite;
 
   DolarDataModel({
     required this.id,
@@ -21,24 +21,36 @@ class DolarDataModel {
     this.isFavorite = false,
   });
 
-  // Factory constructor para crear desde JSON
+  /// Conversión segura de dynamic a double
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value.replaceAll(",", "."));
+    return null;
+  }
+
+  /// Factory constructor desde JSON
   factory DolarDataModel.fromJson(Map<String, dynamic> json) {
-    final casa = json['casa'] as String;
+    final casa = (json['casa'] ?? '').toString();
+    final moneda = (json['moneda'] ?? '').toString();
+
     return DolarDataModel(
-      id: casa, // Usar casa como ID único
-      compra: json['compra']?.toDouble(),
-      venta: json['venta']?.toDouble(),
+      id: '${casa}_$moneda'.toLowerCase(), // ID más único
+      compra: _toDouble(json['compra']),
+      venta: _toDouble(json['venta']),
       casa: casa,
-      nombre: json['nombre'] as String,
-      moneda: json['moneda'] as String,
-      fechaActualizacion: json['fechaActualizacion'] as String,
-      isFavorite: json['isFavorite'] ?? false,
+      nombre: (json['nombre'] ?? '').toString(),
+      moneda: moneda,
+      fechaActualizacion: (json['fechaActualizacion'] ?? '').toString(),
+      isFavorite: json['isFavorite'] == true,
     );
   }
 
-  // Método para convertir a JSON
+  /// Convertir a JSON
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'compra': compra,
       'venta': venta,
       'casa': casa,
@@ -49,35 +61,21 @@ class DolarDataModel {
     };
   }
 
-  // Constructor manual para casos específicos (como dólar tarjeta)
-  DolarDataModel.manual({
-    required this.id,
-    this.compra,
-    this.venta,
-    required this.casa,
-    required this.nombre,
-    required this.moneda,
-    required this.fechaActualizacion,
-    this.isFavorite = false,
-  });
-
-  // Getter para fecha formateada
+  /// Formatear fecha de manera flexible
   String get formattedLastUpdate {
     try {
-      final date = DateTime.parse(fechaActualizacion);
-      final formatter = DateFormat('dd/MM/yyyy HH:mm', 'es_AR');
-      return formatter.format(date);
-    } catch (e) {
+      final date = DateTime.tryParse(fechaActualizacion);
+      if (date == null) return 'Fecha no disponible';
+      return DateFormat('dd/MM/yyyy HH:mm', 'es_AR').format(date);
+    } catch (_) {
       return 'Fecha no disponible';
     }
   }
 
-  // Getter para verificar si tiene tasas válidas
-  bool get hasValidRates {
-    return compra != null || venta != null;
-  }
+  /// Tiene tasas válidas
+  bool get hasValidRates => compra != null || venta != null;
 
-  // Getter para tasa promedio
+  /// Tasa promedio
   double? get averageRate {
     if (compra != null && venta != null) {
       return (compra! + venta!) / 2;
@@ -85,17 +83,17 @@ class DolarDataModel {
     return compra ?? venta;
   }
 
-  // Métodos para comparación y hash
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is DolarDataModel && other.id == id;
+  /// Actualizar parcialmente desde JSON
+  DolarDataModel updateFromJson(Map<String, dynamic> json) {
+    return copyWith(
+      compra: _toDouble(json['compra']) ?? compra,
+      venta: _toDouble(json['venta']) ?? venta,
+      fechaActualizacion: (json['fechaActualizacion'] ?? fechaActualizacion).toString(),
+      isFavorite: json['isFavorite'] ?? isFavorite,
+    );
   }
 
-  @override
-  int get hashCode => id.hashCode;
-
-  // Método copyWith para inmutabilidad
+  /// copyWith
   DolarDataModel copyWith({
     String? id,
     double? compra,
@@ -117,6 +115,12 @@ class DolarDataModel {
       isFavorite: isFavorite ?? this.isFavorite,
     );
   }
+
+  @override
+  bool operator ==(Object other) => identical(this, other) || (other is DolarDataModel && other.id == id);
+
+  @override
+  int get hashCode => id.hashCode;
 
   @override
   String toString() {

@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dolar_data_model.dart'; 
+import 'dolar_data_model.dart';
 
 // MARK: - Custom Errors
 enum DolarNetworkError {
@@ -54,88 +55,69 @@ enum DolarFilter {
 
 // MARK: - Dolar Tarjeta Calculator
 class DolarTarjetaCalculator {
-  static const double adelantoGanancias = 0.30;
+  /// Si mañana agregan más impuestos, solo se agregan aquí
+  static const impuestos = {
+    "adelantoGanancias": 0.30,
+  };
 
   double calcularDolarTarjeta(double dolarOficial) {
-    return dolarOficial * (1 + adelantoGanancias);
+    double total = dolarOficial;
+    for (final porcentaje in impuestos.values) {
+      total += dolarOficial * porcentaje;
+    }
+    return total;
   }
 
-  DolarTarjetaDetalle obtenerDetalleImpuestos(double dolarOficial) {
-    final adelantoGananciasImporte = dolarOficial * adelantoGanancias;
-    final total = dolarOficial + adelantoGananciasImporte;
-    return DolarTarjetaDetalle(
-      dolarOficial: dolarOficial,
-      adelantoGanancias: adelantoGananciasImporte,
-      total: total,
-      porcentajeAdelantoGanancias: adelantoGanancias * 100,
-    );
+  Map<String, double> obtenerDetalle(double dolarOficial) {
+    final detalles = <String, double>{};
+    for (final entry in impuestos.entries) {
+      detalles[entry.key] = dolarOficial * entry.value;
+    }
+    return detalles;
   }
 }
 
-// MARK: - Supporting Structure
-class DolarTarjetaDetalle {
-  final double dolarOficial;
-  final double adelantoGanancias;
-  final double total;
-  final double porcentajeAdelantoGanancias;
-
-  DolarTarjetaDetalle({
-    required this.dolarOficial,
-    required this.adelantoGanancias,
-    required this.total,
-    required this.porcentajeAdelantoGanancias,
-  });
-
-  String get descripcionImpuestos => "Adelanto Ganancias: ${porcentajeAdelantoGanancias.toStringAsFixed(2)}%";
-}
-
-// MARK: - DolarNetworkManager
+// MARK: - ViewModel
 class DolarNetworkManager extends ChangeNotifier {
-  // MARK: - Published Properties
   List<DolarDataModel> _dolarData = [];
   List<DolarDataModel> _filteredData = [];
   bool isLoading = false;
   DolarNetworkError? error;
   DolarFilter _currentFilter = DolarFilter.all;
   DateTime? _lastUpdateTime;
+  Timer? _refreshTimer;
 
-  // MARK: - Dolar Tarjeta Properties
-  DolarTarjetaDetalle? dolarTarjetaDetalle;
-  final DolarTarjetaCalculator _dolarTarjetaCalculator = DolarTarjetaCalculator();
-
-  // MARK: - Private Properties
-  final String _favoritesKey = "FavoriteDolarTypes";
-  final String _lastUpdateKey = "LastDolarUpdate";
-  final String _cacheKey = "CachedDolarData";
-  final String _apiURL = "https://dolarapi.com/v1/dolares";
-  final Duration _updateInterval = const Duration(minutes: 5);
+  final _favoritesKey = "FavoriteDolarTypes";
+  final _lastUpdateKey = "LastDolarUpdate";
+  final _cacheKey = "CachedDolarData";
+  final _apiURL = "https://dolarapi.com/v1/dolares";
+  final _updateInterval = const Duration(minutes: 5);
 
   late SharedPreferences _prefs;
+  final _tarjetaCalculator = DolarTarjetaCalculator();
 
   DolarNetworkManager() {
     _init();
   }
 
+  // Getters públicos
+  List<DolarDataModel> get filteredData => List.unmodifiable(_filteredData);
+  DolarFilter get currentFilter => _currentFilter;
+  bool get hasFavorites => _dolarData.any((d) => d.isFavorite);
+  bool get shouldRefresh => _lastUpdateTime == null || DateTime.now().difference(_lastUpdateTime!) > _updateInterval;
+
   Future<void> _init() async {
     _prefs = await SharedPreferences.getInstance();
     await _loadCachedData();
-    _loadFavorites();
-    _setupAutoRefresh();
+    _startAutoRefresh();
     notifyListeners();
   }
 
-  // MARK: - Public Getters
-  List<DolarDataModel> get filteredData => _filteredData;
-  List<DolarDataModel> get dolarData => _dolarData;
-  DolarFilter get currentFilter => _currentFilter;
-  bool get hasFavorites => _dolarData.any((dolar) => dolar.isFavorite);
-  bool get shouldRefresh => _lastUpdateTime == null || DateTime.now().difference(_lastUpdateTime!) > _updateInterval;
-
-  // MARK: - Public Methods
+  // MARK: - Fetch
   Future<void> fetchData({bool forceRefresh = false}) async {
     if (isLoading && !forceRefresh) return;
     if (!shouldRefresh && !forceRefresh) {
-      notifyListeners();
+      _applyFilter();
       return;
     }
 
@@ -149,10 +131,12 @@ class DolarNetworkManager extends ChangeNotifier {
 
       if (response.statusCode == 200) {
         final List<dynamic> jsonList = jsonDecode(response.body);
-        final List<DolarDataModel> newData = jsonList.map((e) => DolarDataModel.fromJson(e)).toList();
+        final newData = jsonList.map((e) => DolarDataModel.fromJson(e)).toList();
         _processNewData(newData);
         _lastUpdateTime = DateTime.now();
         await _saveToCache();
+      } else if (response.statusCode == 404) {
+        _handleError(DolarNetworkError.noData);
       } else {
         _handleError(DolarNetworkError.serverError);
       }
@@ -164,129 +148,105 @@ class DolarNetworkManager extends ChangeNotifier {
     }
   }
 
-  void toggleFavorite(String id) {
-    final index = _dolarData.indexWhere((element) => element.id == id);
-    if (index != -1) {
-      _dolarData[index] = _dolarData[index].copyWith(isFavorite: !_dolarData[index].isFavorite);
-      _saveFavorites();
-      _applyCurrentFilter();
-      notifyListeners();
-    }
-  }
-
-  void setFilter(DolarFilter filter) {
-    if (_currentFilter == filter) return;
-    _currentFilter = filter;
-    _applyCurrentFilter();
-    notifyListeners();
-  }
-
-  void clearError() {
-    if (error != null) {
-      error = null;
-      notifyListeners();
-    }
-  }
-
-  // MARK: - Private Methods
+  // MARK: - Procesar datos nuevos
   void _processNewData(List<DolarDataModel> newData) {
     final favorites = _prefs.getStringList(_favoritesKey) ?? [];
-    final updatedData = newData.map((dolar) {
-      return dolar.copyWith(isFavorite: favorites.contains(dolar.id));
+
+    // Actualizamos favoritos y agregamos dolar tarjeta
+    _dolarData = newData.map((d) {
+      return d.copyWith(isFavorite: favorites.contains(d.id));
     }).toList();
 
-    _dolarData = updatedData;
     _updateDolarTarjeta();
-    _applyCurrentFilter();
+    _applyFilter();
   }
 
   void _updateDolarTarjeta() {
     final dolarOficial = _dolarData.firstWhere(
-      (dolar) => dolar.casa.toLowerCase() == "oficial",
-      orElse: () => DolarDataModel(id: '', casa: '', nombre: '', moneda: '', fechaActualizacion: ''),
+      (d) => d.casa.toLowerCase() == "oficial",
+      orElse: () => DolarDataModel(
+        id: "oficial_usd",
+        casa: "Oficial",
+        nombre: "Oficial",
+        moneda: "USD",
+        fechaActualizacion: '',
+      ),
     );
 
     if (dolarOficial.venta != null) {
-      dolarTarjetaDetalle = _dolarTarjetaCalculator.obtenerDetalleImpuestos(dolarOficial.venta!);
-      
-      final dolarTarjetaIndex = _dolarData.indexWhere((dolar) => dolar.id == "tarjeta");
-      final dolarTarjetaModel = DolarDataModel(
-        id: "tarjeta",
-        venta: dolarTarjetaDetalle!.total,
-        casa: "tarjeta",
+      final total = _tarjetaCalculator.calcularDolarTarjeta(dolarOficial.venta!);
+      final dolarTarjeta = DolarDataModel(
+        id: "tarjeta_usd",
+        venta: total,
+        casa: "Tarjeta",
         nombre: "Tarjeta",
         moneda: "USD",
         fechaActualizacion: dolarOficial.fechaActualizacion,
-        isFavorite: _prefs.getStringList(_favoritesKey)?.contains("tarjeta") ?? false,
+        isFavorite: _prefs.getStringList(_favoritesKey)?.contains("tarjeta_usd") ?? false,
       );
-      
-      if (dolarTarjetaIndex != -1) {
-        _dolarData[dolarTarjetaIndex] = dolarTarjetaModel;
-      } else {
-        _dolarData.add(dolarTarjetaModel);
-      }
-    } else {
-      dolarTarjetaDetalle = null;
-      _dolarData.removeWhere((dolar) => dolar.id == "tarjeta");
+
+      _dolarData.removeWhere((d) => d.id == "tarjeta_usd");
+      _dolarData.add(dolarTarjeta);
     }
   }
-  
-  void _applyCurrentFilter() {
+
+  // MARK: - Favoritos
+  void toggleFavorite(String id) {
+    final index = _dolarData.indexWhere((d) => d.id == id);
+    if (index != -1) {
+      final updated = _dolarData[index].copyWith(isFavorite: !_dolarData[index].isFavorite);
+      _dolarData[index] = updated;
+      _saveFavorites();
+      _applyFilter();
+      notifyListeners();
+    }
+  }
+
+  void _saveFavorites() {
+    final favorites = _dolarData.where((d) => d.isFavorite).map((d) => d.id).toList();
+    _prefs.setStringList(_favoritesKey, favorites);
+  }
+
+  // MARK: - Filtros
+  void setFilter(DolarFilter filter) {
+    if (_currentFilter == filter) return;
+    _currentFilter = filter;
+    _applyFilter();
+    notifyListeners();
+  }
+
+  void _applyFilter() {
     switch (_currentFilter) {
       case DolarFilter.all:
         _filteredData = List.from(_dolarData);
         break;
       case DolarFilter.favorites:
-        _filteredData = _dolarData.where((dolar) => dolar.isFavorite).toList();
+        _filteredData = _dolarData.where((d) => d.isFavorite).toList();
         break;
       case DolarFilter.official:
-        _filteredData = _dolarData.where((dolar) => dolar.casa.toLowerCase() == "oficial").toList();
+        _filteredData = _dolarData.where((d) => d.casa.toLowerCase() == "oficial").toList();
         break;
       case DolarFilter.blue:
-        _filteredData = _dolarData.where((dolar) => dolar.casa.toLowerCase() == "blue").toList();
+        _filteredData = _dolarData.where((d) => d.casa.toLowerCase() == "blue").toList();
         break;
       case DolarFilter.popular:
         const popularTypes = ["oficial", "blue", "mep", "ccl", "tarjeta"];
-        _filteredData = _dolarData.where((dolar) => popularTypes.contains(dolar.casa.toLowerCase())).toList();
+        _filteredData = _dolarData.where((d) => popularTypes.contains(d.casa.toLowerCase())).toList();
         break;
     }
   }
-  
-  void _handleError(DolarNetworkError newError) {
-    error = newError;
-    isLoading = false;
-    if (kDebugMode) {
-      print("DolarNetworkManager Error: ${newError.errorDescription}");
-    }
-  }
 
-  void _loadFavorites() {
-    final favorites = _prefs.getStringList(_favoritesKey) ?? [];
-    for (var i = 0; i < _dolarData.length; i++) {
-        if (favorites.contains(_dolarData[i].id)) {
-          _dolarData[i] = _dolarData[i].copyWith(isFavorite: true);
-        }
-    }
-    _applyCurrentFilter();
-  }
-
-  void _saveFavorites() {
-    final favorites = _dolarData.where((dolar) => dolar.isFavorite).map((dolar) => dolar.id).toList();
-    _prefs.setStringList(_favoritesKey, favorites);
-  }
-
+  // MARK: - Cache
   Future<void> _saveToCache() async {
     try {
-      final dataToCache = _dolarData.where((dolar) => dolar.casa.toLowerCase() != "tarjeta").toList();
+      final dataToCache = _dolarData.where((d) => d.casa.toLowerCase() != "tarjeta").toList();
       final encoded = jsonEncode(dataToCache.map((e) => e.toJson()).toList());
       await _prefs.setString(_cacheKey, encoded);
       if (_lastUpdateTime != null) {
         await _prefs.setString(_lastUpdateKey, _lastUpdateTime!.toIso8601String());
       }
     } catch (e) {
-      if (kDebugMode) {
-        print("Error al guardar cache: $e");
-      }
+      if (kDebugMode) print("Error al guardar cache: $e");
     }
   }
 
@@ -296,37 +256,44 @@ class DolarNetworkManager extends ChangeNotifier {
 
     try {
       final List<dynamic> jsonList = jsonDecode(data);
-      final List<DolarDataModel> cachedData = jsonList.map((e) => DolarDataModel.fromJson(e)).toList();
-      _dolarData = cachedData;
-      
+      _dolarData = jsonList.map((e) => DolarDataModel.fromJson(e)).toList();
+
       final lastUpdateString = _prefs.getString(_lastUpdateKey);
-      _lastUpdateTime = lastUpdateString != null ? DateTime.parse(lastUpdateString) : null;
+      _lastUpdateTime = lastUpdateString != null ? DateTime.tryParse(lastUpdateString) : null;
+
       _updateDolarTarjeta();
-      _applyCurrentFilter();
+      _applyFilter();
     } catch (e) {
-      if (kDebugMode) {
-        print("Error al cargar cache: $e");
-      }
+      if (kDebugMode) print("Error al cargar cache: $e");
       await _prefs.remove(_cacheKey);
       await _prefs.remove(_lastUpdateKey);
     }
   }
-  
-  void _setupAutoRefresh() {
-    Future.delayed(_updateInterval, () {
-      if (shouldRefresh) {
-        fetchData();
-      }
+
+  // MARK: - Auto Refresh
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_updateInterval, (_) {
+      if (shouldRefresh) fetchData();
     });
   }
 
+  // MARK: - Errores
+  void _handleError(DolarNetworkError newError) {
+    error = newError;
+    isLoading = false;
+    if (kDebugMode) print("Error: ${newError.errorDescription}");
+  }
+
   DolarNetworkError _getNetworkError(dynamic e) {
-    if (e is http.ClientException) {
-      return DolarNetworkError.networkError;
-    }
-    if (e is FormatException) {
-      return DolarNetworkError.decodingError;
-    }
+    if (e is http.ClientException) return DolarNetworkError.networkError;
+    if (e is FormatException) return DolarNetworkError.decodingError;
     return DolarNetworkError.networkError;
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 }

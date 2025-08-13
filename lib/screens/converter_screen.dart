@@ -1,8 +1,5 @@
-// lib/screens/converter_screen.dart
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../models/dolar_data_model.dart';
-import '../models/dolar_network_manager.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 
 class ConverterScreen extends StatefulWidget {
   const ConverterScreen({super.key});
@@ -12,272 +9,227 @@ class ConverterScreen extends StatefulWidget {
 }
 
 class _ConverterScreenState extends State<ConverterScreen> {
-  final TextEditingController _amountController = TextEditingController();
-  String? _fromCurrencyId;
-  String? _toCurrencyId;
-  double _convertedAmount = 0.0;
-  String _conversionError = '';
+  final TextEditingController _pesosController = TextEditingController();
+  final TextEditingController _dolaresController = TextEditingController();
+  
+  final double _tipoCambio = 130.75; // Valor de ejemplo
+  bool _isPesosToUSD = true; // true: pesos a USD, false: USD a pesos
 
   @override
   void initState() {
     super.initState();
-    _amountController.addListener(_convertCurrency);
+    _pesosController.addListener(_onPesosChanged);
+    _dolaresController.addListener(_onDolaresChanged);
   }
 
-  @override
-  void dispose() {
-    _amountController.removeListener(_convertCurrency);
-    _amountController.dispose();
-    super.dispose();
+  void _onPesosChanged() {
+    if (_isPesosToUSD && _pesosController.text.isNotEmpty) {
+      final pesos = double.tryParse(_pesosController.text) ?? 0;
+      final dolares = pesos / _tipoCambio;
+      _dolaresController.text = dolares.toStringAsFixed(2);
+    }
   }
 
-  // Función para realizar la conversión de divisas
-  void _convertCurrency() {
+  void _onDolaresChanged() {
+    if (!_isPesosToUSD && _dolaresController.text.isNotEmpty) {
+      final dolares = double.tryParse(_dolaresController.text) ?? 0;
+      final pesos = dolares * _tipoCambio;
+      _pesosController.text = pesos.toStringAsFixed(2);
+    }
+  }
+
+  void _swapCurrencies() {
     setState(() {
-      _conversionError = ''; // Limpiar errores previos
-      final manager = context.read<DolarNetworkManager>();
-      final amount = double.tryParse(_amountController.text);
-
-      if (amount == null || amount <= 0) {
-        _convertedAmount = 0.0;
-        return;
-      }
-      if (_fromCurrencyId == null || _toCurrencyId == null) {
-        _convertedAmount = 0.0;
-        return;
-      }
-
-      // Obtener los modelos de divisa completos
-      final fromDolar = manager.dolarData.firstWhere(
-        (d) => d.id == _fromCurrencyId,
-        orElse: () => DolarDataModel.manual(id: 'ARS', nombre: 'Peso Argentino', moneda: 'ARS', casa: 'local', fechaActualizacion: DateTime.now().toIso8601String()),
-      );
-      final toDolar = manager.dolarData.firstWhere(
-        (d) => d.id == _toCurrencyId,
-        orElse: () => DolarDataModel.manual(id: 'ARS', nombre: 'Peso Argentino', moneda: 'ARS', casa: 'local', fechaActualizacion: DateTime.now().toIso8601String()),
-      );
-
-      // Manejar el caso del Peso Argentino (ARS)
-      final isFromARS = fromDolar.id == 'ARS';
-      final isToARS = toDolar.id == 'ARS';
-
-      double? rate;
-
-      if (isFromARS && !isToARS) {
-        // Convertir ARS a USD (cualquier tipo de dólar)
-        // Usamos el precio de venta del dólar al que queremos convertir (lo "compramos" con pesos)
-        rate = toDolar.venta;
-        if (rate == null || rate == 0) {
-          _conversionError = 'Tasa de venta no disponible para ${toDolar.nombre}';
-          _convertedAmount = 0.0;
-          return;
-        }
-        _convertedAmount = amount / rate;
-      } else if (!isFromARS && isToARS) {
-        // Convertir USD (cualquier tipo de dólar) a ARS
-        // Usamos el precio de compra del dólar que tenemos (lo "vendemos" por pesos)
-        rate = fromDolar.compra;
-        if (rate == null || rate == 0) {
-          _conversionError = 'Tasa de compra no disponible para ${fromDolar.nombre}';
-          _convertedAmount = 0.0;
-          return;
-        }
-        _convertedAmount = amount * rate;
-      } else if (!isFromARS && !isToARS) {
-        // Convertir entre diferentes tipos de USD (ej. Blue a Oficial)
-        // Primero a ARS, luego de ARS al otro USD
-        final fromRate = fromDolar.compra; // Convertir el "desde" USD a ARS
-        final toRate = toDolar.venta;     // Convertir ARS al "hacia" USD
-
-        if (fromRate == null || fromRate == 0) {
-          _conversionError = 'Tasa de compra no disponible para ${fromDolar.nombre}';
-          _convertedAmount = 0.0;
-          return;
-        }
-        if (toRate == null || toRate == 0) {
-          _conversionError = 'Tasa de venta no disponible para ${toDolar.nombre}';
-          _convertedAmount = 0.0;
-          return;
-        }
-        _convertedAmount = (amount * fromRate) / toRate;
-      } else {
-        // ARS a ARS (sin conversión)
-        _convertedAmount = amount;
-      }
+      _isPesosToUSD = !_isPesosToUSD;
+      // Intercambiar valores
+      final temp = _pesosController.text;
+      _pesosController.text = _dolaresController.text;
+      _dolaresController.text = temp;
     });
+    HapticFeedback.lightImpact();
   }
 
-  // Obtener la lista de divisas disponibles para los dropdowns
-  List<DolarDataModel> _getAvailableCurrencies(List<DolarDataModel> dolarData) {
-    // Incluimos el Peso Argentino manualmente
-    final List<DolarDataModel> currencies = [
-      DolarDataModel.manual(id: 'ARS', nombre: 'Peso Argentino', moneda: 'ARS', casa: 'local', fechaActualizacion: DateTime.now().toIso8601String()),
-    ];
-    // Añadimos los dólares disponibles, filtrando los que no tienen tasas válidas si es necesario
-    currencies.addAll(dolarData.where((dolar) => dolar.hasValidRates || dolar.id == 'tarjeta'));
-    return currencies;
+  void _clearFields() {
+    _pesosController.clear();
+    _dolaresController.clear();
+    HapticFeedback.lightImpact();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<DolarNetworkManager>(
-      builder: (context, manager, child) {
-        final availableCurrencies = _getAvailableCurrencies(manager.dolarData);
-
-        // Si no hay datos, mostrar un mensaje
-        if (manager.isLoading && manager.dolarData.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (manager.error != null) {
-          return Center(
-            child: Text('Error al cargar divisas: ${manager.error!.errorDescription}'),
-          );
-        }
-        if (availableCurrencies.isEmpty) {
-          return const Center(child: Text('No hay divisas disponibles para conversión.'));
-        }
-
-        return SingleChildScrollView(
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        middle: Text('Conversor'),
+        backgroundColor: CupertinoColors.systemBackground,
+      ),
+      child: SafeArea(
+        child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Conversor de Divisas',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              // Campo de entrada de cantidad
-              TextField(
-                controller: _amountController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Cantidad',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.attach_money),
-                ),
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 24),
-              // Selector de divisa "Desde"
-              _buildCurrencyDropdown(
-                context,
-                'Desde',
-                _fromCurrencyId,
-                availableCurrencies,
-                (String? newValue) {
-                  setState(() {
-                    _fromCurrencyId = newValue;
-                    _convertCurrency();
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              // Botón para intercambiar divisas
-              Center(
-                child: IconButton(
-                  icon: const Icon(Icons.swap_vert, size: 36),
-                  onPressed: () {
-                    setState(() {
-                      final temp = _fromCurrencyId;
-                      _fromCurrencyId = _toCurrencyId;
-                      _toCurrencyId = temp;
-                      _convertCurrency();
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Selector de divisa "Hacia"
-              _buildCurrencyDropdown(
-                context,
-                'Hacia',
-                _toCurrencyId,
-                availableCurrencies,
-                (String? newValue) {
-                  setState(() {
-                    _toCurrencyId = newValue;
-                    _convertCurrency();
-                  });
-                },
-              ),
-              const SizedBox(height: 32),
-              // Resultado de la conversión
+              const SizedBox(height: 20),
+              
+              // Tipo de cambio actual
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(16),
+                  color: CupertinoColors.systemBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      'Resultado:',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
-                          ),
+                    const Icon(
+                      CupertinoIcons.money_dollar_circle,
+                      color: CupertinoColors.systemBlue,
                     ),
-                    const SizedBox(height: 8),
-                    if (_conversionError.isNotEmpty)
-                      Text(
-                        _conversionError,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: Theme.of(context).colorScheme.error),
-                      )
-                    else
-                      Text(
-                        '${_convertedAmount.toFormattedDecimalString(maximumFractionDigits: 2)} ${_getCurrencySymbol(_toCurrencyId)}',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.onPrimaryContainer,
-                            ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Tipo de cambio: \$${_tipoCambio.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: CupertinoColors.systemBlue,
                       ),
+                    ),
                   ],
+                ),
+              ),
+              
+              const SizedBox(height: 30),
+              
+              // Campo Pesos
+              _buildCurrencyField(
+                controller: _pesosController,
+                label: 'Pesos Argentinos',
+                symbol: '\$',
+                isActive: _isPesosToUSD,
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Botón de intercambio
+              GestureDetector(
+                onTap: _swapCurrencies,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: const BoxDecoration(
+                    color: CupertinoColors.systemGrey6,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    CupertinoIcons.arrow_up_arrow_down,
+                    color: CupertinoColors.systemBlue,
+                    size: 24,
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Campo Dólares
+              _buildCurrencyField(
+                controller: _dolaresController,
+                label: 'Dólares USD',
+                symbol: 'US\$',
+                isActive: !_isPesosToUSD,
+              ),
+              
+              const SizedBox(height: 40),
+              
+              // Botón limpiar
+              CupertinoButton.filled(
+                onPressed: _clearFields,
+                child: const Text('Limpiar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrencyField({
+    required TextEditingController controller,
+    required String label,
+    required String symbol,
+    required bool isActive,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: isActive ? CupertinoColors.systemBlue : CupertinoColors.systemGrey,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: CupertinoColors.systemGrey6,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isActive 
+                ? CupertinoColors.systemBlue.withOpacity(0.5)
+                : CupertinoColors.systemGrey4,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                decoration: BoxDecoration(
+                  color: isActive 
+                    ? CupertinoColors.systemBlue.withOpacity(0.1)
+                    : CupertinoColors.systemGrey5,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(11),
+                    bottomLeft: Radius.circular(11),
+                  ),
+                ),
+                child: Text(
+                  symbol,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isActive 
+                      ? CupertinoColors.systemBlue
+                      : CupertinoColors.systemGrey,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: CupertinoTextField(
+                  controller: controller,
+                  decoration: const BoxDecoration(),
+                  placeholder: '0.00',
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                    color: isActive 
+                      ? CupertinoColors.label
+                      : CupertinoColors.systemGrey,
+                  ),
+                  padding: const EdgeInsets.all(16),
                 ),
               ),
             ],
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
-  // Widget auxiliar para construir los DropdownButtons
-  Widget _buildCurrencyDropdown(
-    BuildContext context,
-    String label,
-    String? selectedValue,
-    List<DolarDataModel> currencies,
-    ValueChanged<String?> onChanged,
-  ) {
-    return DropdownButtonFormField<String>(
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      ),
-      value: selectedValue,
-      hint: const Text('Selecciona una divisa'),
-      onChanged: onChanged,
-      items: currencies.map<DropdownMenuItem<String>>((DolarDataModel dolar) {
-        return DropdownMenuItem<String>(
-          value: dolar.id,
-          child: Text(dolar.nombre),
-        );
-      }).toList(),
-      isExpanded: true,
-    );
-  }
-
-  // Función auxiliar para obtener el símbolo de la moneda
-  String _getCurrencySymbol(String? currencyId) {
-    if (currencyId == 'ARS') {
-      return 'ARS';
-    } else if (currencyId != null) {
-      // Para cualquier tipo de dólar, mostramos USD
-      return 'USD';
-    }
-    return '';
+  @override
+  void dispose() {
+    _pesosController.dispose();
+    _dolaresController.dispose();
+    super.dispose();
   }
 }
