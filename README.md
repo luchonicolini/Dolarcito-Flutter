@@ -16,3 +16,4 @@ For help getting started with Flutter development, view the
 samples, guidance on mobile development, and a full API reference.
 
 <img width="350" height="450" alt="Captura de pantalla 2025-08-11 a la(s) 2 03 16 p  m" src="https://github.com/user-attachments/assets/40a9c196-f31d-4763-bb42-3f1598e889f3" />
+<img width="393" height="808" alt="Captura de pantalla 2025-08-13 a la(s) 4 27 54 a  m" src="https://github.com/user-attachments/assets/4285e6e7-1415-4f6b-aba1-08b48f6cbfb1" />
