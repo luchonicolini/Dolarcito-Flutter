@@ -149,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen>
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w500,
-                          color: CupertinoColors.white.withOpacity(0.8),
+                          color: CupertinoColors.white.withValues(alpha: 0.8),
                           height: 1.3,
                         ),
                       ),
@@ -163,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen>
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0),
                 child: Divider(
-                  color: CupertinoColors.white.withOpacity(0.25),
+                  color: CupertinoColors.white.withValues(alpha: 0.25),
                   thickness: 1,
                 ),
               ),
@@ -188,10 +188,10 @@ class _HomeScreenState extends State<HomeScreen>
               height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: CupertinoColors.white.withOpacity(0.1),
+                color: CupertinoColors.white.withValues(alpha: 0.1),
                 boxShadow: [
                   BoxShadow(
-                    color: CupertinoColors.white.withOpacity(0.1),
+                    color: CupertinoColors.white.withValues(alpha: 0.1),
                     blurRadius: 20,
                     spreadRadius: 5,
                   ),
@@ -212,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen>
               height: 60,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: CupertinoColors.white.withOpacity(0.08),
+                color: CupertinoColors.white.withValues(alpha: 0.08),
               ),
             ),
           );
@@ -246,12 +246,12 @@ class _HomeScreenState extends State<HomeScreen>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: colors.map((c) => c.withOpacity(0.8)).toList(),
+          colors: colors.map((c) => c.withValues(alpha: 0.8)).toList(),
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: colors[0].withOpacity(0.3),
+            color: colors[0].withValues(alpha: 0.3),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -263,7 +263,7 @@ class _HomeScreenState extends State<HomeScreen>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: CupertinoColors.white.withOpacity(0.2),
+                    color: CupertinoColors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: CupertinoColors.white, size: 20),
@@ -287,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen>
                         description,
                         style: TextStyle(
                           fontSize: 12,
-                          color: CupertinoColors.white.withOpacity(0.9),
+                          color: CupertinoColors.white.withValues(alpha: 0.9),
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -304,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen>
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: CupertinoColors.white.withOpacity(0.2),
+                    color: CupertinoColors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Icon(icon, color: CupertinoColors.white, size: 16),
@@ -323,7 +323,7 @@ class _HomeScreenState extends State<HomeScreen>
                   description,
                   style: TextStyle(
                     fontSize: 11,
-                    color: CupertinoColors.white.withOpacity(0.9),
+                    color: CupertinoColors.white.withValues(alpha: 0.9),
                     height: 1.2,
                   ),
                   maxLines: 2,
@@ -403,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen>
         decoration: BoxDecoration(
           color: isSelected 
               ? CupertinoColors.systemBlue 
-              : CupertinoColors.darkBackgroundGray.withOpacity(0.4),
+              : CupertinoColors.darkBackgroundGray.withValues(alpha: 0.4),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -528,7 +528,7 @@ class _ErrorView extends StatelessWidget {
               message,
               style: TextStyle(
                 fontSize: 16,
-                color: CupertinoColors.white.withOpacity(0.8),
+                color: CupertinoColors.white.withValues(alpha: 0.8),
               ),
               textAlign: TextAlign.center,
             ),

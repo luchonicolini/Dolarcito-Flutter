@@ -16,11 +16,10 @@ class _MainTabViewState extends State<MainTabView> {
   int _currentIndex = 0; // Estado que guarda la pestaña actual
 
   // Lista de las pantallas que se mostrarán
-  final List<Widget> _screens = [
+final List<Widget> _screens = [
     const HomeScreen(),
-    const ConverterScreen(),
-  ];
-
+    const PolishedConverterScreen(), 
+];
   @override
   Widget build(BuildContext context) {
     // Usamos un Stack para poder superponer la barra de navegación
