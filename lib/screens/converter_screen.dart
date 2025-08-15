@@ -1,9 +1,41 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dolar_data_model.dart';
 import '../models/dolar_network_manager.dart';
+
+class _Constants {
+  static const double maxInputLength = 12;
+  static const double cardBorderRadius = 20.0;
+  static const double keyboardHeight = 70.0;
+  static const double headerFontSize = 32.0;
+  static const double subtitleFontSize = 16.0;
+  static const double selectorFontSize = 17.0;
+  static const double primaryAmountFontSize = 32.0;
+  static const double secondaryAmountFontSize = 28.0;
+  static const double keyboardFontSize = 28.0;
+  
+  // Spacing
+  static const double headerVerticalPadding = 20.0;
+  static const double headerHorizontalPadding = 24.0;
+  static const double cardPadding = 20.0;
+  static const double keyboardMargin = 16.0;
+  static const double selectorMargin = 20.0;
+  // Eliminadas: tabBarSafeArea y keyboardSafeArea
+  
+  // Animation durations
+  static const Duration animationDuration = Duration(milliseconds: 200);
+  static const Duration swapAnimationDuration = Duration(milliseconds: 600);
+  static const Duration fadeAnimationDuration = Duration(milliseconds: 300);
+  static const Duration scaleAnimationDuration = Duration(milliseconds: 100);
+  static const Duration debounceDelay = Duration(milliseconds: 300);
+  
+  // Decimal places
+  static const int maxDecimalPlaces = 2;
+  static const int displayDecimalPlaces = 2;
+}
 
 class PolishedConverterScreen extends StatefulWidget {
   const PolishedConverterScreen({super.key});
@@ -14,95 +46,178 @@ class PolishedConverterScreen extends StatefulWidget {
 
 class _PolishedConverterScreenState extends State<PolishedConverterScreen> with TickerProviderStateMixin {
   final ValueNotifier<String> _amountNotifier = ValueNotifier('0');
-  final ValueNotifier<String> _convertedAmountNotifier = ValueNotifier('0.00');
+  final ValueNotifier<String> _convertedAmountNotifier = ValueNotifier('0,00'); // Cambiado a formato argentino
   late AnimationController _swapAnimationController;
   late AnimationController _fadeAnimationController;
+  // ELIMINADO: late NumberFormat _numberFormatter; - Ya no lo necesitamos
 
   String? _selectedDolarId;
   bool _isUSDToPesos = false;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
-    _amountNotifier.addListener(_updateConvertedAmount);
+    // ELIMINADO: _initializeFormatters(); - Ya no lo necesitamos
+    _amountNotifier.addListener(_updateConvertedAmountDebounced);
+    _initializeAnimations();
+  }
+
+
+
+ void _initializeAnimations() {
     _swapAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: _Constants.swapAnimationDuration,
       vsync: this,
     );
     _fadeAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: _Constants.fadeAnimationDuration,
       vsync: this,
     );
     _fadeAnimationController.forward();
   }
 
+  void _updateConvertedAmountDebounced() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_Constants.debounceDelay, _updateConvertedAmount);
+  }
+
   void _updateConvertedAmount() {
-    final networkManager = Provider.of<DolarNetworkManager>(context, listen: false);
-    if (!mounted || _selectedDolarId == null || networkManager.filteredData.isEmpty) {
-      _convertedAmountNotifier.value = '0.00';
-      return;
-    }
+    try {
+      final networkManager = Provider.of<DolarNetworkManager>(context, listen: false);
+      if (!mounted || _selectedDolarId == null || networkManager.filteredData.isEmpty) {
+        _convertedAmountNotifier.value = _formatDisplayAmount(0.0);
+        return;
+      }
 
-    final selectedDolar = networkManager.filteredData.firstWhere((d) => d.id == _selectedDolarId, orElse: () => networkManager.filteredData.first);
-    final amount = double.tryParse(_amountNotifier.value) ?? 0.0;
-    
-    if (amount == 0.0) {
-      _convertedAmountNotifier.value = '0.00';
-      return;
-    }
+      final selectedDolar = networkManager.filteredData.firstWhere(
+        (d) => d.id == _selectedDolarId, 
+        orElse: () => networkManager.filteredData.first
+      );
+      
+      final amount = _parseAmount(_amountNotifier.value);
+      
+      if (amount == 0.0) {
+        _convertedAmountNotifier.value = _formatDisplayAmount(0.0);
+        return;
+      }
 
-    double? rate;
-    if (_isUSDToPesos) {
-      rate = selectedDolar.compra ?? selectedDolar.venta;
-    } else {
-      rate = selectedDolar.venta ?? selectedDolar.compra;
+      final convertedAmount = _calculateConversion(selectedDolar, amount);
+      _convertedAmountNotifier.value = convertedAmount ?? 'N/A';
+      
+    } catch (e) {
+      debugPrint('Error updating conversion: $e');
+      _convertedAmountNotifier.value = 'Error';
     }
+  }
 
-    if (rate == null || rate == 0.0) {
-      _convertedAmountNotifier.value = 'N/A';
-      return;
+  double _parseAmount(String amountStr) {
+    try {
+      return double.tryParse(amountStr) ?? 0.0;
+    } catch (e) {
+      debugPrint('Error parsing amount: $e');
+      return 0.0;
     }
+  }
 
-    final converted = _isUSDToPesos ? (amount * rate) : (amount / rate);
-    _convertedAmountNotifier.value = converted.toStringAsFixed(2);
+  String? _calculateConversion(DolarDataModel selectedDolar, double amount) {
+    try {
+      double? rate;
+      if (_isUSDToPesos) {
+        rate = selectedDolar.compra ?? selectedDolar.venta;
+      } else {
+        rate = selectedDolar.venta ?? selectedDolar.compra;
+      }
+
+      if (rate == null || rate == 0.0) {
+        return null;
+      }
+
+      final converted = _isUSDToPesos ? (amount * rate) : (amount / rate);
+      return _formatDisplayAmount(converted);
+      
+    } catch (e) {
+      debugPrint('Error calculating conversion: $e');
+      return null;
+    }
+  }
+
+ String _formatDisplayAmount(double amount) {
+    try {
+      return amount.toFormattedCurrencyString(decimalDigits: _Constants.displayDecimalPlaces);
+    } catch (e) {
+      debugPrint('Error formatting amount: $e');
+      return amount.toStringAsFixed(_Constants.displayDecimalPlaces);
+    }
   }
 
   void _swapCurrencies() {
-    if (mounted) {
-      _swapAnimationController.forward().then((_) {
-        _swapAnimationController.reverse();
-      });
-      setState(() {
-        _isUSDToPesos = !_isUSDToPesos;
-      });
+    try {
+      if (mounted) {
+        _swapAnimationController.forward().then((_) {
+          _swapAnimationController.reverse();
+        });
+        setState(() {
+          _isUSDToPesos = !_isUSDToPesos;
+        });
+      }
+      _updateConvertedAmount(); 
+      HapticFeedback.mediumImpact();
+    } catch (e) {
+      debugPrint('Error swapping currencies: $e');
     }
-    _updateConvertedAmount(); 
-    HapticFeedback.mediumImpact();
   }
 
   void _onNumberPressed(String number) {
-    String currentAmount = _amountNotifier.value;
-    if (number == '.' && currentAmount.contains('.')) return;
-    if (currentAmount == '0' && number != '.') {
-      _amountNotifier.value = number;
-    } else {
-      if(currentAmount.length < 12) {
+    try {
+      String currentAmount = _amountNotifier.value;
+      
+      // Validar punto decimal
+      if (number == '.' && currentAmount.contains('.')) return;
+      
+      // Validar que no empiece con múltiples ceros
+      if (currentAmount == '0' && number == '0') return;
+      
+      // Validar límite de decimales
+      if (currentAmount.contains('.')) {
+        final parts = currentAmount.split('.');
+        if (parts.length > 1 && parts[1].length >= _Constants.maxDecimalPlaces) {
+          return;
+        }
+      }
+      
+      // Validar longitud máxima
+      if (currentAmount.length >= _Constants.maxInputLength) return;
+      
+      if (currentAmount == '0' && number != '.') {
+        _amountNotifier.value = number;
+      } else {
         _amountNotifier.value = currentAmount + number;
       }
+    } catch (e) {
+      debugPrint('Error processing number input: $e');
     }
   }
 
   void _onBackspacePressed() {
-    String currentAmount = _amountNotifier.value;
-    if (currentAmount.length > 1) {
-      _amountNotifier.value = currentAmount.substring(0, currentAmount.length - 1);
-    } else {
-      _amountNotifier.value = '0';
+    try {
+      String currentAmount = _amountNotifier.value;
+      if (currentAmount.length > 1) {
+        _amountNotifier.value = currentAmount.substring(0, currentAmount.length - 1);
+      } else {
+        _amountNotifier.value = '0';
+      }
+    } catch (e) {
+      debugPrint('Error processing backspace: $e');
     }
   }
 
   void _onClearPressed() {
-    _amountNotifier.value = '0';
+    try {
+      _amountNotifier.value = '0';
+    } catch (e) {
+      debugPrint('Error clearing input: $e');
+    }
   }
 
   @override
@@ -112,92 +227,131 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
       child: Consumer<DolarNetworkManager>(
         builder: (context, networkManager, child) {
           if (networkManager.isLoading && networkManager.filteredData.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CupertinoActivityIndicator(radius: 20),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Cargando tipos de cambio...',
-                    style: TextStyle(
-                      color: CupertinoColors.systemGrey.resolveFrom(context),
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
-              ),
-            );
+            return _buildLoadingState();
           }
 
-          final availableTypes = networkManager.filteredData.where((d) =>
-            ["oficial", "blue", "mep", "ccl", "tarjeta"].contains(d.casa.toLowerCase())
-          ).toList();
+          final availableTypes = _getAvailableTypes(networkManager);
 
           if (availableTypes.isEmpty) {
-             return const Center(child: Text("No hay tipos de dólar disponibles."));
+            return _buildErrorState("No hay tipos de dólar disponibles.");
           }
 
-          if (_selectedDolarId == null || !availableTypes.any((d) => d.id == _selectedDolarId)) {
-            _selectedDolarId = availableTypes.first.id;
-          }
+          _ensureValidSelection(availableTypes);
           
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if(mounted) _updateConvertedAmount();
           });
 
-          return FadeTransition(
-            opacity: _fadeAnimationController,
-            child: SafeArea(
-              bottom: false,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                      child: IntrinsicHeight(
-                        child: Column(
-                          children: [
-                            _buildHeader(),
-                            const SizedBox(height: 24),
-                            _buildDolarTypeSelector(availableTypes),
-                            const SizedBox(height: 32),
-                            _buildConverterSection(),
-                            const Spacer(),
-                            _buildKeyboard(),
-                            const SizedBox(height: 90),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
+          return _buildMainContent(availableTypes);
         },
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CupertinoActivityIndicator(radius: 20),
+          const SizedBox(height: 16),
+          Text(
+            'Cargando tipos de cambio...',
+            style: TextStyle(
+              color: CupertinoColors.systemGrey.resolveFrom(context),
+              fontSize: _Constants.subtitleFontSize,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String message) {
+    return Center(
+      child: Text(
+        message,
+        style: TextStyle(
+          color: CupertinoColors.systemRed.resolveFrom(context),
+          fontSize: _Constants.subtitleFontSize,
+        ),
+      ),
+    );
+  }
+
+  List<DolarDataModel> _getAvailableTypes(DolarNetworkManager networkManager) {
+    const allowedTypes = ["oficial", "blue", "mep", "ccl", "tarjeta"];
+    return networkManager.filteredData.where((d) =>
+      allowedTypes.contains(d.casa.toLowerCase())
+    ).toList();
+  }
+
+  void _ensureValidSelection(List<DolarDataModel> availableTypes) {
+    if (_selectedDolarId == null || !availableTypes.any((d) => d.id == _selectedDolarId)) {
+      _selectedDolarId = availableTypes.first.id;
+    }
+  }
+
+  Widget _buildMainContent(List<DolarDataModel> availableTypes) {
+    return FadeTransition(
+      opacity: _fadeAnimationController,
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Obtener información del MediaQuery para calcular espacios seguros
+            final mediaQuery = MediaQuery.of(context);
+            final bottomPadding = mediaQuery.viewInsets.bottom > 0 
+              ? mediaQuery.viewInsets.bottom + 20 // Espacio adicional cuando aparece teclado del sistema
+              : mediaQuery.padding.bottom + 120; // Espacio para tab bar + margen adicional
+            
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
+                    _buildHeader(),
+                    const SizedBox(height: 20),
+                    _buildDolarTypeSelector(availableTypes),
+                    const SizedBox(height: 24),
+                    _buildConverterSection(),
+                    const SizedBox(height: 32),
+                    _buildKeyboard(),
+                    SizedBox(height: bottomPadding), // Espacio dinámico para tab bar
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: _Constants.headerHorizontalPadding, 
+        vertical: _Constants.headerVerticalPadding
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Conversor de Divisas',
             style: TextStyle(
-              fontSize: 28,
+              fontSize: _Constants.headerFontSize,
               fontWeight: FontWeight.w700,
               color: CupertinoColors.label.resolveFrom(context),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             'Conversión instantánea ARS ↔ USD',
             style: TextStyle(
-              fontSize: 16,
+              fontSize: _Constants.subtitleFontSize,
+              fontWeight: FontWeight.w500,
               color: CupertinoColors.systemGrey.resolveFrom(context),
             ),
           ),
@@ -208,7 +362,7 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
 
   Widget _buildDolarTypeSelector(List<DolarDataModel> availableTypes) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
+      margin: const EdgeInsets.symmetric(horizontal: _Constants.selectorMargin),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -217,7 +371,7 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
             child: Text(
               'Tipo de cambio',
               style: TextStyle(
-                fontSize: 16,
+                fontSize: _Constants.selectorFontSize,
                 fontWeight: FontWeight.w600,
                 color: CupertinoColors.label.resolveFrom(context),
               ),
@@ -241,42 +395,8 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
                 final isSelected = _selectedDolarId == dolar.id;
                 return Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      if (mounted) setState(() => _selectedDolarId = dolar.id);
-                      HapticFeedback.selectionClick();
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-                      decoration: BoxDecoration(
-                        gradient: isSelected ? LinearGradient(
-                          colors: [
-                            CupertinoColors.systemBlue.resolveFrom(context),
-                            CupertinoColors.systemBlue.resolveFrom(context).withOpacity(0.8),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ) : null,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: isSelected ? [
-                          BoxShadow(
-                            color: CupertinoColors.systemBlue.resolveFrom(context).withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ] : null,
-                      ),
-                      child: Text(
-                        _getDolarDisplayName(dolar.nombre),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isSelected ? CupertinoColors.white : CupertinoColors.label.resolveFrom(context),
-                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
+                    onTap: () => _onDolarTypeSelected(dolar.id),
+                    child: _buildSelectorButton(dolar, isSelected),
                   ),
                 );
               }).toList(),
@@ -287,9 +407,53 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
     );
   }
 
+  void _onDolarTypeSelected(String dolarId) {
+    try {
+      if (mounted) setState(() => _selectedDolarId = dolarId);
+      HapticFeedback.selectionClick();
+    } catch (e) {
+      debugPrint('Error selecting dolar type: $e');
+    }
+  }
+
+  Widget _buildSelectorButton(DolarDataModel dolar, bool isSelected) {
+    return AnimatedContainer(
+      duration: _Constants.animationDuration,
+      curve: Curves.easeInOut,
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        gradient: isSelected ? LinearGradient(
+          colors: [
+            CupertinoColors.systemBlue.resolveFrom(context),
+            CupertinoColors.systemBlue.resolveFrom(context).withOpacity(0.8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ) : null,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: isSelected ? [
+          BoxShadow(
+            color: CupertinoColors.systemBlue.resolveFrom(context).withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ] : null,
+      ),
+      child: Text(
+        _getDolarDisplayName(dolar.nombre),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: isSelected ? CupertinoColors.white : CupertinoColors.label.resolveFrom(context),
+          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+
   Widget _buildConverterSection() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
+      margin: const EdgeInsets.symmetric(horizontal: _Constants.selectorMargin),
       child: Column(
         children: [
           _buildInputCard(),
@@ -303,10 +467,15 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
   }
 
   String _getDolarDisplayName(String nombre) {
-    switch (nombre.toLowerCase()) {
-      case 'contado con liquidación': return 'CCL';
-      default: return nombre;
-    }
+    const displayNames = {
+      'contado con liquidación': 'CCL',
+      'tarjeta': 'Tarjeta',
+      'oficial': 'Oficial',
+      'blue': 'Blue',
+      'mep': 'MEP',
+    };
+    
+    return displayNames[nombre.toLowerCase()] ?? nombre;
   }
 
   Widget _buildInputCard() {
@@ -348,12 +517,12 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
     required bool isPrimary,
   }) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(_Constants.cardPadding),
       decoration: BoxDecoration(
         color: isPrimary 
           ? CupertinoColors.systemBackground.resolveFrom(context)
           : CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(_Constants.cardBorderRadius),
         border: isPrimary ? Border.all(
           color: CupertinoColors.systemBlue.resolveFrom(context).withOpacity(0.3),
           width: 2,
@@ -436,7 +605,7 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
                       Text(
                         amount == '0' ? '0' : amount,
                         style: TextStyle(
-                          fontSize: isPrimary ? 32 : 28,
+                          fontSize: isPrimary ? _Constants.primaryAmountFontSize : _Constants.secondaryAmountFontSize,
                           fontWeight: FontWeight.w700,
                           color: isPrimary 
                             ? CupertinoColors.label.resolveFrom(context)
@@ -491,7 +660,7 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
 
   Widget _buildKeyboard() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: _Constants.keyboardMargin),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -538,7 +707,8 @@ class _PolishedConverterScreenState extends State<PolishedConverterScreen> with 
 
   @override
   void dispose() {
-    _amountNotifier.removeListener(_updateConvertedAmount);
+    _debounceTimer?.cancel();
+    _amountNotifier.removeListener(_updateConvertedAmountDebounced);
     _amountNotifier.dispose();
     _convertedAmountNotifier.dispose();
     _swapAnimationController.dispose();
@@ -575,7 +745,7 @@ class _ModernCalculatorKeyState extends State<_ModernCalculatorKey> with SingleT
   void initState() {
     super.initState();
     _scaleController = AnimationController(
-      duration: const Duration(milliseconds: 100),
+      duration: _Constants.scaleAnimationDuration,
       vsync: this,
     );
     _scaleAnimation = Tween<double>(
@@ -588,31 +758,47 @@ class _ModernCalculatorKeyState extends State<_ModernCalculatorKey> with SingleT
   }
 
   void _onTapDown(TapDownDetails details) {
-    if (mounted) {
-      setState(() => _isPressed = true);
-      _scaleController.forward();
+    try {
+      if (mounted) {
+        setState(() => _isPressed = true);
+        _scaleController.forward();
+      }
+      HapticFeedback.lightImpact();
+    } catch (e) {
+      debugPrint('Error on tap down: $e');
     }
-    HapticFeedback.lightImpact();
   }
 
   void _onTapUp(TapUpDetails details) {
-    if (mounted) {
-      setState(() => _isPressed = false);
-      _scaleController.reverse();
+    try {
+      if (mounted) {
+        setState(() => _isPressed = false);
+        _scaleController.reverse();
+      }
+      widget.onTap();
+    } catch (e) {
+      debugPrint('Error on tap up: $e');
     }
-    widget.onTap();
   }
 
   void _onTapCancel() {
-    if (mounted) {
-      setState(() => _isPressed = false);
-      _scaleController.reverse();
+    try {
+      if (mounted) {
+        setState(() => _isPressed = false);
+        _scaleController.reverse();
+      }
+    } catch (e) {
+      debugPrint('Error on tap cancel: $e');
     }
   }
   
   void _onLongPress() {
-    HapticFeedback.mediumImpact();
-    widget.onLongPress?.call();
+    try {
+      HapticFeedback.mediumImpact();
+      widget.onLongPress?.call();
+    } catch (e) {
+      debugPrint('Error on long press: $e');
+    }
   }
 
   @override
@@ -627,12 +813,12 @@ class _ModernCalculatorKeyState extends State<_ModernCalculatorKey> with SingleT
           onLongPress: widget.onLongPress != null ? _onLongPress : null,
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 8),
-            height: 70,
+            height: _Constants.keyboardHeight,
             decoration: BoxDecoration(
               color: widget.isSpecial 
                 ? CupertinoColors.systemOrange.resolveFrom(context).withOpacity(_isPressed ? 0.3 : 0.1)
                 : CupertinoColors.systemBackground.resolveFrom(context),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(_Constants.cardBorderRadius),
               border: Border.all(
                 color: widget.isSpecial 
                   ? CupertinoColors.systemOrange.resolveFrom(context).withOpacity(0.3)
@@ -652,7 +838,7 @@ class _ModernCalculatorKeyState extends State<_ModernCalculatorKey> with SingleT
                   ? Text(
                       widget.text!,
                       style: TextStyle(
-                        fontSize: 28,
+                        fontSize: _Constants.keyboardFontSize,
                         fontWeight: FontWeight.w500,
                         color: widget.isSpecial 
                           ? CupertinoColors.systemOrange.resolveFrom(context)

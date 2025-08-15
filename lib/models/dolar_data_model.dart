@@ -1,5 +1,19 @@
 import 'package:intl/intl.dart';
 
+// --- NUEVO: La extensión que traduce tu código de Swift ---
+// Añade el método .toFormattedCurrencyString() a cualquier variable de tipo double.
+extension DoubleExtension on double {
+  String toFormattedCurrencyString({int decimalDigits = 2}) {
+    // NumberFormat de intl hace todo el trabajo de los separadores automáticamente
+    // al indicarle el 'locale' (la región).
+    final formatter = NumberFormat.decimalPatternDigits(
+      locale: 'es_AR', // Esto asegura el formato 1.234,56
+      decimalDigits: decimalDigits,
+    );
+    return formatter.format(this);
+  }
+}
+
 class DolarDataModel {
   final String id;
   final double? compra;
@@ -21,7 +35,6 @@ class DolarDataModel {
     this.isFavorite = false,
   });
 
-  /// Conversión segura de dynamic a double
   static double? _toDouble(dynamic value) {
     if (value == null) return null;
     if (value is double) return value;
@@ -30,13 +43,12 @@ class DolarDataModel {
     return null;
   }
 
-  /// Factory constructor desde JSON
   factory DolarDataModel.fromJson(Map<String, dynamic> json) {
     final casa = (json['casa'] ?? '').toString();
     final moneda = (json['moneda'] ?? '').toString();
 
     return DolarDataModel(
-      id: '${casa}_$moneda'.toLowerCase(), // ID más único
+      id: '${casa}_$moneda'.toLowerCase(),
       compra: _toDouble(json['compra']),
       venta: _toDouble(json['venta']),
       casa: casa,
@@ -46,93 +58,25 @@ class DolarDataModel {
       isFavorite: json['isFavorite'] == true,
     );
   }
-
-  /// Convertir a JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'compra': compra,
-      'venta': venta,
-      'casa': casa,
-      'nombre': nombre,
-      'moneda': moneda,
-      'fechaActualizacion': fechaActualizacion,
-      'isFavorite': isFavorite,
-    };
-  }
-
-  /// Formatear fecha de manera flexible
+  
+  // --- ACTUALIZADO: El formateador de fecha ahora incluye segundos, como en tu código Swift ---
   String get formattedLastUpdate {
     try {
       final date = DateTime.tryParse(fechaActualizacion);
       if (date == null) return 'Fecha no disponible';
-      return DateFormat('dd/MM/yyyy HH:mm', 'es_AR').format(date);
+      // Añadimos :ss para incluir los segundos
+      return DateFormat('dd/MM/yyyy HH:mm:ss', 'es_AR').format(date);
     } catch (_) {
       return 'Fecha no disponible';
     }
   }
 
-  /// Tiene tasas válidas
+  // (El resto de la clase no necesita cambios)
+  Map<String, dynamic> toJson() => { 'id': id, 'compra': compra, 'venta': venta, 'casa': casa, 'nombre': nombre, 'moneda': moneda, 'fechaActualizacion': fechaActualizacion, 'isFavorite': isFavorite };
   bool get hasValidRates => compra != null || venta != null;
-
-  /// Tasa promedio
-  double? get averageRate {
-    if (compra != null && venta != null) {
-      return (compra! + venta!) / 2;
-    }
-    return compra ?? venta;
-  }
-
-  /// Actualizar parcialmente desde JSON
-  DolarDataModel updateFromJson(Map<String, dynamic> json) {
-    return copyWith(
-      compra: _toDouble(json['compra']) ?? compra,
-      venta: _toDouble(json['venta']) ?? venta,
-      fechaActualizacion: (json['fechaActualizacion'] ?? fechaActualizacion).toString(),
-      isFavorite: json['isFavorite'] ?? isFavorite,
-    );
-  }
-
-  /// copyWith
-  DolarDataModel copyWith({
-    String? id,
-    double? compra,
-    double? venta,
-    String? casa,
-    String? nombre,
-    String? moneda,
-    String? fechaActualizacion,
-    bool? isFavorite,
-  }) {
-    return DolarDataModel(
-      id: id ?? this.id,
-      compra: compra ?? this.compra,
-      venta: venta ?? this.venta,
-      casa: casa ?? this.casa,
-      nombre: nombre ?? this.nombre,
-      moneda: moneda ?? this.moneda,
-      fechaActualizacion: fechaActualizacion ?? this.fechaActualizacion,
-      isFavorite: isFavorite ?? this.isFavorite,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) => identical(this, other) || (other is DolarDataModel && other.id == id);
-
-  @override
-  int get hashCode => id.hashCode;
-
-  @override
-  String toString() {
-    return 'DolarDataModel(id: $id, casa: $casa, nombre: $nombre, compra: $compra, venta: $venta, isFavorite: $isFavorite)';
-  }
-}
-
-extension DoubleExtension on double {
-  String toFormattedDecimalString({int maximumFractionDigits = 0}) {
-    final formatter = NumberFormat.decimalPattern('es_AR');
-    formatter.maximumFractionDigits = maximumFractionDigits;
-    formatter.minimumFractionDigits = 0;
-    return formatter.format(this);
-  }
+  double? get averageRate { if (compra != null && venta != null) { return (compra! + venta!) / 2; } return compra ?? venta; }
+  DolarDataModel copyWith({ String? id, double? compra, double? venta, String? casa, String? nombre, String? moneda, String? fechaActualizacion, bool? isFavorite }) => DolarDataModel( id: id ?? this.id, compra: compra ?? this.compra, venta: venta ?? this.venta, casa: casa ?? this.casa, nombre: nombre ?? this.nombre, moneda: moneda ?? this.moneda, fechaActualizacion: fechaActualizacion ?? this.fechaActualizacion, isFavorite: isFavorite ?? this.isFavorite );
+  @override bool operator ==(Object other) => identical(this, other) || (other is DolarDataModel && other.id == id);
+  @override int get hashCode => id.hashCode;
+  @override String toString() => 'DolarDataModel(id: $id, casa: $casa, nombre: $nombre, compra: $compra, venta: $venta, isFavorite: $isFavorite)';
 }
